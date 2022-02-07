@@ -9,8 +9,7 @@ push "dhcp-option DNS 8.8.4.4"
 !
 
 alias cp=/usr/bin/cp
-mkdir -p /etc/openvpn/easy-rsa/keys; vrs=$(ls /usr/share/easy-rsa/ | tail -1); cp -rf /usr/share/easy-rsa/$vrs/* /etc/openvpn/easy-rsa;  #cp -rf /etc/openvpn/easy-rsa/openssl-1.0.0.cnf /etc/openvpn/easy-rsa/openssl.cnf
-
+mkdir -p /etc/openvpn/easy-rsa/keys; vrs=$(ls /usr/share/easy-rsa/ | tail -1); cp -rf /usr/share/easy-rsa/$vrs/* /etc/openvpn/easy-rsa; 
 cat >> /etc/openvpn/easy-rsa/vars <<!
 export KEY_COUNTRY="US"
 export KEY_PROVINCE="Virginia"
