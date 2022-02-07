@@ -1,3 +1,3 @@
-# openvpn
+# OpenVPN
 
 This is to outline steps to configure OpenVPN Community Edition.
