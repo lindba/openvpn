@@ -1,0 +1,95 @@
+yum install -y openvpn.x86_64 easy-rsa
+
+cp /usr/share/doc/openvpn*/sample/sample-config-files/server.conf /etc/openvpn
+cat >> /etc/openvpn/server.conf <<!
+dh /etc/openvpn/keys/dh.pem
+push "redirect-gateway def1 bypass-dhcp"
+push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4"
+!
+
+alias cp=/usr/bin/cp
+mkdir -p /etc/openvpn/easy-rsa/keys; vrs=$(ls /usr/share/easy-rsa/ | tail -1); cp -rf /usr/share/easy-rsa/$vrs/* /etc/openvpn/easy-rsa;  #cp -rf /etc/openvpn/easy-rsa/openssl-1.0.0.cnf /etc/openvpn/easy-rsa/openssl.cnf
+
+cat >> /etc/openvpn/easy-rsa/vars <<!
+export KEY_COUNTRY="US"
+export KEY_PROVINCE="Virginia"
+export KEY_CITY="Ashburn"
+export KEY_ORG="eg"
+export KEY_EMAIL="admin@eg.cld"
+export KEY_OU="IT"
+!
+
+h=$( hostname | cut -d. -f1 );
+cd /etc/openvpn/easy-rsa && source ./vars &&
+echo yes |./easyrsa clean-all
+echo | ./easyrsa build-ca nopass
+echo | ./easyrsa build-server-full $h nopass
+
+./easyrsa gen-dh; mv pki ../server/
+cd /etc/openvpn/server; ln -s pki keys;
+cp -ai keys/*/$h.{crt,key} keys/ca.crt keys/dh*.pem keys/
+egrep -v -e 'sample-keys|askpass|push|keepalive|inactive' /usr/share/doc/openvpn*/sample/sample-config-files/roadwarrior-server.conf > /etc/openvpn/server/serverudp.conf
+
+cat >> /etc/openvpn/server/serverudp.conf <<!
+ca keys/ca.crt
+cert keys/$h.crt
+key keys/$h.key
+dh keys/dh.pem
+askpass p.txt
+push "route 10.0.0.0 255.255.255.0"
+#doc: clint: link fail -> recon
+keepalive 10 20
+#doc: #_secs of inactivity -> del clnt insts
+inactive 600
+!
+echo Open1VPN@OCI > /etc/openvpn/server/p.txt; chmod 600 /etc/openvpn/server/p.txt
+
+
+ifc=$(ip link | grep '^2'| cut -d: -f2);
+cat > /etc/nftables/natOvpn.nft <<!
+ flush ruleset;
+ add table inet natOvpn;
+ add chain inet natOvpn chnPostRt  { type nat hook postrouting priority 0 ; policy accept; };
+ add rule inet natOvpn chnPostRt  oifname $ifc masquerade;
+!
+
+
+cat > /etc/nftables/natOvpn.nft <<!
+table ip natOvpn {
+        chain POSTROUTING {
+                type nat hook postrouting priority srcnat; policy accept;
+                oifname "ens3" masquerade
+        }
+}
+!
+cat >> /etc/sysconfig/nftables.conf <<!
+ include "/etc/nftables/natOvpn.nft"
+!
+for act in enable restart; do for svc in openvpn-server@serverudp nftables; do systemctl $act $svc; done; done;
+nft list ruleset
+for act in disable stop; do systemctl $act firewalld; done;
+echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf; sysctl -p;
+
+
+svr:
+cd /etc/openvpn/server; /etc/openvpn/easy-rsa/easyrsa build-client-full $usr nopass
+mkdir /etc/openvpn/client/$usr; cp -p pki/private/$usr.key pki/issued/$usr.crt pki/ca.crt p.txt  /etc/openvpn/client/$usr; cd /etc/openvpn/client/; zip -r9 $usr.zip $usr;
+
+
+clnt:
+egrep -v -e 'sample-keys|askpass|push\remote' /usr/share/doc/openvpn*/sample/sample-config-files/roadwarrior-client.conf > /etc/openvpn/client/clientudp.conf
+/etc/openvpn/client/clientudp.conf:
+remote 150.136.22.26
+ca ca.crt
+cert vpno.crt
+key vpno.key
+askpass p.txt
+keepalive 10 60
+
+#win client: download "Windows 64-bit MSI installer" from https://openvpn.net/community-downloads/;  cp -p clientudp.conf clientudp.ovpn
+
+
+systemctl start openvpn-client@clientudp.service
+/usr/sbin/openvpn --suppress-timestamps --nobind --config clientudp.conf
+ 
